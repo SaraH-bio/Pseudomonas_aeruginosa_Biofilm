@@ -1,0 +1,76 @@
+
+library(GEOquery)
+
+gse <- getGEO("GSE9989", GSEMatrix = TRUE)
+
+# If multiple platforms exist, you can access them like this:
+length(gse)         
+names(gse)        
+gse[[1]]           
+expr_data <- exprs(gse[[1]])
+
+# phenodata
+pheno_data <- pData(gse[[1]])
+
+expr_data = as.data.frame(expr_data)
+
+# Annotation
+GSE9989.annotation <- read.delim(" .tsv")
+
+expr_data$ID = rownames(expr_data)
+
+# Merge by ID
+merged_data <- merge(expr_data, GSE9989.top.table, by = "ID")
+
+# View result
+head(merged_data)
+
+# Remove rows where gene.symbol is NA or empty string
+data <- merged_data[merged_data$Gene.symbol != "" & !is.na(merged_data$Gene.symbol), ]
+
+# Subset phenotype data to include only Biofilm_Control and Biofilm_Ciprofloxacin
+biofilm_subset <- pheno_data[pheno_data$status %in% c("Biofilm_Control", "Biofilm_Tobra"), ]
+
+# Confirm the subset
+table(biofilm_subset$status)
+
+# Subset expression data accordingly
+expr_biofilm <- data.agg[, colnames(data.agg) %in% rownames(biofilm_subset)]
+
+
+genes_of_interest <- c("hcp1" , "PA0084", "PA3822", "secE" , "secY"  , "vfr", "clpP"  , "hcpC"  , "pilJ" , "typA"  , "PA1669", "secB"  )
+# Subset for selected genes
+expr_genes <- expr_biofilm[rownames(expr_biofilm) %in% genes_of_interest, ]
+
+# Transpose for ggplot-friendly format
+expr_long <- as.data.frame(t(expr_genes))
+expr_long$Sample <- rownames(expr_long)
+
+# Add group info
+expr_long$Group <- biofilm_subset[expr_long$Sample, "status"]
+
+# Reshape to long format for plotting
+library(reshape2)
+expr_melted <- melt(expr_long, id.vars = c("Sample", "Group"), 
+                    variable.name = "Gene", value.name = "Expression")
+
+# Custom color palette
+colors <- c("Biofilm_Control" = "#00BFC4", "Biofilm_Tobra" = "tomato")
+
+# Plot
+ggplot(expr_melted, aes(x = Group, y = Expression, fill = Group)) +
+  geom_boxplot(width = 0.5, outlier.shape = NA, alpha = 0.8, color = "black") +
+  geom_jitter(width = 0.2, size = 2.8, alpha = 0.8, aes(color = Group)) +
+  stat_compare_means(method = "t.test", label = "p.format", size = 3, label.y.npc = "top") +
+  facet_wrap(~Gene, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = colors) +
+  scale_color_manual(values = colors) +
+  theme_classic(base_size = 12) +  # Change to white background
+  theme(strip.text = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 30, hjust = 1),
+        legend.position = "none") +
+  labs(title = " ",
+       x = "", y = "Expression Level")
+
+
+
