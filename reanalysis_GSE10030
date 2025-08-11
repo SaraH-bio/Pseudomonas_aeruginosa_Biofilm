@@ -1,0 +1,106 @@
+
+library(GEOquery)
+
+# Download the dataset (this retrieves the Series Matrix file by default)
+gse <- getGEO("GSE10030", GSEMatrix = TRUE)
+length(gse)         
+names(gse)         
+gse[[1]]          
+expr_data <- exprs(gse[[1]])
+head(expr_data)
+
+# phenodata
+pheno_data <- pData(gse[[1]])
+head(pheno_data)
+
+expr_data = as.data.frame(expr_data)
+
+# Annotation
+GSE10030.annotation <- read.delim(" .tsv")
+
+expr_data$ID = rownames(expr_data)
+
+# Merge by ID
+merged_data <- merge(expr_data, GSE10030.annotation, by = "ID")
+
+# View result
+head(merged_data)
+
+# Remove rows where gene.symbol is NA or empty string
+data <- merged_data[merged_data$Gene.symbol != "" & !is.na(merged_data$Gene.symbol), ]
+
+# View result
+head(data)
+
+sum(duplicated(data$Gene.symbol))
+
+# make numeric
+data = apply(data, 2, as.numeric)
+mode(data)
+
+# Aggregation
+data.agg = aggregate(data, by = list(data2$Gene.symbol), FUN = mean)
+dim(data.agg)
+
+# Remove low varience rows
+varRow = apply(data.agg, 1, var, na.rm =T)
+constRow = (varRow == 0 | is.na(varRow))
+sum(constRow)
+
+# subsetting
+pheno_sub <- pheno_data[pheno_data$status %in% c("Biofilm", "Planktonic"), ]
+expr_sub <- data.agg[, rownames(pheno_sub)]
+
+library(ggplot2)
+
+# limma DEGs
+# Create design matrix
+design <- model.matrix(~ 0 + pheno_sub$status)
+colnames(design) <- c("Biofilm", "Planktonic")
+
+# Fit the linear model
+fit <- limma::lmFit(expr_sub, design)
+
+# Define contrast: Biofilm_vs_Planktonic
+contrast_matrix <- limma::makeContrasts(Biofilm_vs_Planktonic  = Biofilm - Planktonic , levels = design)
+
+# Apply contrast to the model
+fit2 <- limma::contrasts.fit(fit, contrast_matrix)
+
+# Apply empirical Bayes moderation
+fit2 <- limma::eBayes(fit2)
+
+# Extract top DEGs (sorted by adjusted p-value)
+top_table <- limma::topTable(fit2, adjust.method = "fdr", number = Inf, sort.by = "P")
+
+# View top differentially expressed genes
+head(top_table)
+
+# volcano plot
+# Assuming your DEGs data frame is 'top_table'
+top_table$diffexpressed = "NO"  
+top_table$diffexpressed[top_table$logFC > 1 & top_table$P.Value < 0.05] = "UP"  
+top_table$diffexpressed[top_table$logFC < -1 & top_table$P.Value < 0.05] = "DOWN"  
+
+top_table$delabel = NA  
+top_table$delabel[top_table$diffexpressed != "NO"] = rownames(top_table)[top_table$diffexpressed != "NO"] 
+
+# Create the base plot
+p = ggplot(data = top_table, aes(x = logFC, y = -log10(P.Value), col = diffexpressed)) +
+  geom_point() +
+  theme_minimal() +
+  geom_vline(xintercept = c(-1, 1), col = "red") +  
+  geom_hline(yintercept = -log10(0.05), col = "red") +  
+  scale_color_manual(values = c("DOWN" = "red", "UP" = "purple", "NO" = "yellow"))  
+
+# Add gene labels for significant genes (avoiding overlap)
+p = p + geom_text(aes(label = delabel), vjust = 1.5, hjust = 1.5, size = 3, check_overlap = TRUE)
+
+# Display the plot
+print(p)
+
+# Filter for DEGs based on p-value < 0.05 and absolute logFC > 1
+deg_filtered = top_table[top_table$P.Value < 0.05 & abs(top_table$logFC) > 1, ]
+
+upDEGs = deg_filtered %>%filter(P.Value < 0.05 & logFC >1) # UP in biofilm
+downDEGs = deg_filtered %>%filter(P.Value < 0.05 & logFC < -1)  # DOWN in biofilm
