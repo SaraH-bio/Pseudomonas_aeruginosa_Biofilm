@@ -1,0 +1,25 @@
+
+library(ggVennDiagram)
+library(ggplot2)
+
+# COMMON UP
+gene_lists <- list(
+  GSE23007 = upDEGs_invitro_GSE23007$X, 
+  GSE10030 = upDEGs_PsGSE10030$X,
+  GSE12207 = upDEGs_PsGSE12207_static$X,
+  GSE25128 = upDEGs_Ps_GSE25128_BiofilmQS_vs_PlanktonicQS$X)
+
+# Plot Venn diagram
+ggVennDiagram(gene_lists) + 
+  scale_fill_gradient(low = "lightyellow", high = "seagreen")
+
+# COMMON DOWN
+gene_lists_down <- list(
+  GSE23007 = downDEGs_invitro_GSE23007$X, 
+  GSE10030 = downDEGs_PsGSE10030$X,
+  GSE12207 = downDEGs_Ps_GSE12207_static$X,
+  GSE25128 = downDEGs_Ps_GSE25128_BiofilmQS_vs_PlanktonicQS$X)
+
+# Plot Venn diagram
+ggVennDiagram(gene_lists_down) + 
+  scale_fill_gradient(low = "lightyellow", high = "seagreen")
