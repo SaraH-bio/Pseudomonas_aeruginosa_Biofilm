@@ -1,0 +1,198 @@
+
+# select common genes
+common_genes <- Reduce(intersect, list(rownames(expr_GSE10030), rownames(expr_QSbiofilm_QSplanktonic), rownames(expr_static_GSE12207), rownames(exp_GSE23007)))
+
+# Subset each dataset
+exp_GSE10030 <- expr_GSE10030[common_genes, ]
+exp_GSE12207 <- expr_static_GSE12207[common_genes, ]
+exp_GSE23007 <- exp_GSE23007[common_genes, ]
+exp_GSE25128 <- expr_QSbiofilm_QSplanktonic[common_genes, ]
+
+
+combined_expr <- cbind(exp_GSE10030, exp_GSE12207, exp_GSE23007, exp_GSE25128)
+
+sample_info <- data.frame(
+  sample = colnames(combined_expr),
+  batch = rep(c("exp_GSE10030", "exp_GSE12207", "exp_GSE23007", "exp_GSE25128"),
+              times = c(5, 6, 12, 6)))
+
+
+library(limma)
+expr_corrected <- removeBatchEffect(combined_expr, batch = sample_info$batch)
+
+datExpr <- t(expr_corrected)
+
+
+library(WGCNA)
+gsg <- goodSamplesGenes(datExpr, verbose = 3)
+datExpr <- datExpr[gsg$goodSamples, gsg$goodGenes]
+
+# Pick soft-thresholding power
+sft <- pickSoftThreshold(datExpr, powerVector = 1:20, verbose = 5)
+
+# Use chosen power, build adjacency & TOM
+softPower <- sft$powerEstimate
+adjacency <- adjacency(datExpr, power = softPower)
+TOM <- TOMsimilarity(adjacency)
+dissTOM <- 1 - TOM
+
+# Cluster genes
+geneTree <- hclust(as.dist(dissTOM), method = "average")
+dynamicMods <- cutreeDynamic(dendro = geneTree, distM = dissTOM,
+                             deepSplit = 2, pamRespectsDendro = FALSE, minClusterSize = 30)
+moduleColors <- labels2colors(dynamicMods)
+
+
+MEs <- moduleEigengenes(datExpr, colors = moduleColors)$eigengenes
+
+trait_data <- read.csv("E:/trait_data.csv")
+str(trait_data)
+
+trait_data$status_numeric <- ifelse(trait_data$status == "Biofilm", 1,
+                                    ifelse(trait_data$status == "Planktonic", 0, NA))
+
+trait_numeric <- data.frame(status = trait_data$status_numeric)
+rownames(trait_numeric) <- trait_data$ID  # if needed to match rownames in MEs
+
+# If not already aligned
+trait_numeric <- trait_numeric[rownames(MEs), ]
+
+moduleTraitCor <- cor(MEs, trait_data$status_numeric, use = "p")
+
+moduleTraitCor_clean <- moduleTraitCor
+colnames(moduleTraitCor) <- "status_numeric"
+moduleTraitCor_clean <- moduleTraitCor[, "status_numeric", drop = FALSE]
+
+trait_numeric <- data.frame(status = trait_data$status_numeric)
+rownames(trait_numeric) <- trait_data$ID
+trait_numeric <- trait_numeric[rownames(MEs), , drop = FALSE]
+moduleTraitCor <- cor(MEs, trait_numeric, use = "p")
+colnames(moduleTraitCor)
+
+# extract significant modules
+sig_modules <- rownames(moduleTraitCor)[abs(moduleTraitCor[, "status"]) > 0.7]
+print(sig_modules)
+
+library(WGCNA)
+
+textMatrix <- paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(corPvalueStudent(moduleTraitCor, nrow(trait_numeric)), 1), ")", sep = "")
+dim(textMatrix) <- dim(moduleTraitCor)
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = colnames(trait_numeric),
+               yLabels = rownames(moduleTraitCor),
+               ySymbols = rownames(moduleTraitCor),
+               colorLabels = FALSE,
+               colors = blueWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.8,
+               zlim = c(-1,1),
+               main = "Module-Trait Relationships")
+
+# Plot dendrogram with module colors
+plotDendroAndColors(
+  geneTree,
+  moduleColors,
+  "Module Colors",
+  dendroLabels = FALSE,
+  hang = 0.03,
+  addGuide = TRUE,
+  guideHang = 0.05,
+  main = " "
+)
+
+# BLUE MODULE
+module <- "blue"
+column <- match(module, substring(names(MEs), 3))  # index of the module eigengene
+moduleGenes <- moduleColors == module
+
+# Calculate gene significance (GS) and module membership (MM)
+geneModuleMembership <- cor(datExpr, MEs, use = "p")
+geneTraitSignificance <- cor(datExpr, trait_data$status_numeric, use = "p")
+
+# Scatterplot
+plot(abs(geneModuleMembership[moduleGenes, column]),
+     abs(geneTraitSignificance[moduleGenes]),
+     xlab = paste("Module Membership in", module, "module"),
+     ylab = "Gene Significance for Trait",
+     main = paste("Gene Significance vs Module Membership in", module, "Module"),
+     col = module)
+
+topHubGenes <- names(sort(kME[moduleGenes, module_column], decreasing = TRUE))[1:15]
+
+# SKYBLUE MODULE
+module <- "skyblue"
+column <- match(module, substring(names(MEs), 3))  # index of the module eigengene
+moduleGenes <- moduleColors == module
+
+# Calculate gene significance (GS) and module membership (MM)
+geneModuleMembership <- cor(datExpr, MEs, use = "p")
+geneTraitSignificance <- cor(datExpr, trait_data$status_numeric, use = "p")
+
+# Scatterplot
+plot(abs(geneModuleMembership[moduleGenes, column]),
+     abs(geneTraitSignificance[moduleGenes]),
+     xlab = paste("Module Membership in", module, "module"),
+     ylab = "Gene Significance for Trait",
+     main = paste("Gene Significance vs Module Membership in", module, "Module"),
+     col = module)
+topHubGenes <- names(sort(kME[moduleGenes, module_column], decreasing = TRUE))[1:15]
+
+
+# TURQUOISE MODULE
+module <- "turquoise"
+column <- match(module, substring(names(MEs), 3))  # index of the module eigengene
+moduleGenes <- moduleColors == module
+
+# Calculate gene significance (GS) and module membership (MM)
+geneModuleMembership <- cor(datExpr, MEs, use = "p")
+geneTraitSignificance <- cor(datExpr, trait_data$status_numeric, use = "p")
+
+# Scatterplot
+plot(abs(geneModuleMembership[moduleGenes, column]),
+     abs(geneTraitSignificance[moduleGenes]),
+     xlab = paste("Module Membership in", module, "module"),
+     ylab = "Gene Significance for Trait",
+     main = paste("Gene Significance vs Module Membership in", module, "Module"),
+     col = module)
+
+topHubGenes <- names(sort(kME[moduleGenes, module_column], decreasing = TRUE))[1:15]
+
+# PALETURQUOISE MODULE
+module <- "paleturquoise"
+column <- match(module, substring(names(MEs), 3))  # index of the module eigengene
+moduleGenes <- moduleColors == module
+
+# Calculate gene significance (GS) and module membership (MM)
+geneModuleMembership <- cor(datExpr, MEs, use = "p")
+geneTraitSignificance <- cor(datExpr, trait_data$status_numeric, use = "p")
+
+# Scatterplot
+plot(abs(geneModuleMembership[moduleGenes, column]),
+     abs(geneTraitSignificance[moduleGenes]),
+     xlab = paste("Module Membership in", module, "module"),
+     ylab = "Gene Significance for Trait",
+     main = paste("Gene Significance vs Module Membership in", module, "Module"),
+     col = "black")
+
+topHubGenes <- names(sort(kME[moduleGenes, module_column], decreasing = TRUE))[1:15]
+
+# YELLOW MODULE
+module <- "yellow"
+column <- match(module, substring(names(MEs), 3))  # index of the module eigengene
+moduleGenes <- moduleColors == module
+
+# Calculate gene significance (GS) and module membership (MM)
+geneModuleMembership <- cor(datExpr, MEs, use = "p")
+geneTraitSignificance <- cor(datExpr, trait_data$status_numeric, use = "p")
+
+# Scatterplot
+plot(abs(geneModuleMembership[moduleGenes, column]),
+     abs(geneTraitSignificance[moduleGenes]),
+     xlab = paste("Module Membership in", module, "module"),
+     ylab = "Gene Significance for Trait",
+     main = paste("Gene Significance vs Module Membership in", module, "Module"),
+     col = "gold")
+topHubGenes <- names(sort(kME[moduleGenes, module_column], decreasing = TRUE))[1:15]
