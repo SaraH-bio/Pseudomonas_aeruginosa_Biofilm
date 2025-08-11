@@ -1,0 +1,114 @@
+library(GEOquery)
+
+# Download the dataset (this retrieves the Series Matrix file by default)
+gse <- getGEO("GSE23007", GSEMatrix = TRUE)
+length(gse)         
+names(gse)          
+gse[[1]] 
+
+expr_data <- exprs(gse[[1]])
+head(expr_data)
+
+#add phemodata
+pheno_data <- pData(gse[[1]])
+head(pheno_data)
+
+expr_data = as.data.frame(expr_data)
+# Annotation
+GSE23007.annotation <- read.delim(" .tsv")
+
+expr_data$ID = rownames(expr_data)
+
+# Merge by ID
+merged_data <- merge(expr_data, GSE23007.annotation, by = "ID")
+
+# View result
+head(merged_data)
+
+# Remove rows where gene.symbol is NA or empty string
+data <- merged_data[merged_data$Gene.symbol != "" & !is.na(merged_data$Gene.symbol), ]
+
+# View result
+head(data)
+
+# remove symbol column
+data = data[ ,-31]
+
+# make numeric
+data = apply(data, 2, as.numeric)
+mode(data)
+
+# aggregation
+data.agg = aggregate(data, by = list(data2$Gene.symbol), FUN = mean)
+dim(data.agg)
+
+# remove low varience
+varRow = apply(data.agg, 1, var, na.rm =T)
+constRow = (varRow == 0 | is.na(varRow))
+sum(constRow)
+
+# scalling
+data.agg <- t(scale(t(data.agg)))
+
+# subseting
+# Filter only for in vitro samples
+pheno_invitro <- pheno_data[pheno_data$`infection model isolate source:ch1` %in% 
+                            c("in vitro biofilm", "in vitro planktonic culture"), ]
+
+# Keep only columns that are present in pheno_invitro rownames
+data.agg_subset <- data.agg[, colnames(data.agg) %in% rownames(pheno_invitro)]
+
+library(ggplot2)
+# limma
+# Create design matrix
+design <- model.matrix(~ 0 + pheno_invitro$status)
+colnames(design) <- c("in_vitro_biofilm", "in_vitro_planktonic")
+
+# Fit the linear model
+fit <- limma::lmFit(data.agg_subset, design)
+
+# Define contrast: med vs normal
+contrast_matrix <- limma::makeContrasts(in_vitro_biofilm_vs_in_vitro_planktonic = in_vitro_biofilm - in_vitro_planktonic , levels = design)
+
+# Apply contrast to the model
+fit2 <- limma::contrasts.fit(fit, contrast_matrix)
+
+# Apply empirical Bayes moderation
+fit2 <- limma::eBayes(fit2)
+
+# Extract top DEGs (sorted by adjusted p-value)
+top_table <- limma::topTable(fit2, adjust.method = "fdr", number = Inf, sort.by = "P")
+
+# View top differentially expressed genes
+head(top_table)
+
+# volcano plot
+top_table$diffexpressed = "NO"  
+top_table$diffexpressed[top_table$logFC > 1 & top_table$P.Value < 0.05] = "UP"  
+top_table$diffexpressed[top_table$logFC < -1 & top_table$P.Value < 0.05] = "DOWN"  
+
+top_table$delabel = NA  
+top_table$delabel[top_table$diffexpressed != "NO"] = rownames(top_table)[top_table$diffexpressed != "NO"] 
+
+# Create the base plot
+p = ggplot(data = top_table, aes(x = logFC, y = -log10(P.Value), col = diffexpressed)) +
+  geom_point() +
+  theme_minimal() +
+  geom_vline(xintercept = c(-1, 1), col = "red") +  
+  geom_hline(yintercept = -log10(0.05), col = "red") +  
+  scale_color_manual(values = c("DOWN" = "brown", "UP" = "seagreen", "NO" = "gold"))  
+
+# Add gene labels for significant genes (avoiding overlap)
+p = p + geom_text(aes(label = delabel), vjust = 1.5, hjust = 1.5, size = 3, check_overlap = TRUE)
+
+# Display the plot
+print(p)
+
+# Filter for DEGs based on p-value < 0.05 and absolute logFC > 1
+deg_filtered = top_table[top_table$P.Value < 0.05 & abs(top_table$logFC) > 1, ]
+
+upDEGs = deg_filtered %>%filter(P.Value < 0.05 & logFC >1) # UP IN biofilm
+downDEGs = deg_filtered %>%filter(P.Value < 0.05 & logFC < -1)  #DOWN IN biofilm
+
+
+
